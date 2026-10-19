@@ -10,6 +10,7 @@
 1. [Usage](#usage)
     * [What this module affects](#what-this-module-affects)
     * [Configuration options](#configuration-options)
+    * [Dovecot 2.4](#dovecot-24)
     * [External config files](#external-config-files)
     * [Poolmon configuration](#poolmon-configuration)
 1. [Reference](#reference)
@@ -22,8 +23,9 @@ This module installs and manages the dovecot imap server and its plugins, and pr
 resources and functions to configure the dovecot system.
 It does, however, not configure any of those systems beyond the upstream defaults.
 
-This module is intended to work with Puppet 5 and 6, tested dovceot and OS versions are
-listed below. Patches to support other setups are welcome.
+This module is intended to work with Puppet 7 and 8. It writes whatever settings you give it,
+so it works with both the Dovecot 2.3 and the 2.4 configuration syntax. See
+[Dovecot 2.4](#dovecot-24) for the 2.4 specifics. Patches to support other setups are welcome.
 
 ## Usage
 
@@ -127,6 +129,97 @@ dovecot::config { 'dovecot passdb driver':
 By default all regular config files are created with mode 0644, but this can be changed by
 creating the `dovecot::configfile` instance manually and specifying the `$mode` param, or
 by setting the global `dovecot::configs_mode` parameter/hiera key.
+
+### Dovecot 2.4
+
+Dovecot 2.4 changed the configuration syntax considerably (see the
+[upgrade guide](https://doc.dovecot.org/main/installation/upgrade/2.3-to-2.4.html)).
+This module does not translate settings: you provide 2.4 style names and values and the
+module writes them. A few things are worth knowing:
+
+* `dovecot_config_version` **must** be the first setting in `dovecot.conf`, and
+  `dovecot_storage_version` is required. The module always writes these two keys at the top
+  of the file, regardless of what other top-level keys you set.
+* Lists such as `mail_plugins` are now sections of `name = yes` entries, so use a nested hash.
+  Arrays are still joined with spaces, which is only right for the few settings that remain
+  space-separated lists, like `protocols`.
+* Sections like `passdb` and `userdb` must be named. Put the section type and name in the key,
+  e.g. `passdb passwd-file`.
+* Variables changed, e.g. `%d` is now `%{user | domain}`. Hiera treats `%{...}` as
+  interpolation, so escape the opening sequence with `%{literal('%')}{...}` in YAML.
+* External `.conf.ext` files for SQL and LDAP were removed in favor of normal settings, so
+  `dovecot::extconfigs` is not needed for those anymore.
+
+Example hiera data for a virtual-user setup with Postfix, LMTP and Sieve:
+
+```yaml
+dovecot::plugins:
+  - imap
+  - lmtp
+  - sieve
+  - managesieve
+dovecot::config:
+  dovecot_config_version: '2.4.0'
+  dovecot_storage_version: '2.4.2'
+  hostname: mail.example.com
+  protocols: imap sieve lmtp
+dovecot::configs:
+  '10-auth':
+    auth_mechanisms: plain login
+    passdb_default_password_scheme: SHA512-CRYPT
+    'passdb passwd-file':
+      driver: passwd-file
+      passwd_file_path: /etc/dovecot/virtual_accounts_passwd
+    'userdb passwd-file':
+      driver: passwd-file
+      passwd_file_path: /etc/dovecot/virtual_accounts_passwd
+      fields:
+        uid: vmail
+        gid: vmail
+        home: "/home/vmail/%{literal('%')}{user | domain}/%{literal('%')}{user | username}"
+  '10-mail':
+    mail_driver: maildir
+    mail_path: "/home/vmail/%{literal('%')}{user | domain}/%{literal('%')}{user | username}/Maildir"
+    mail_privileged_group: mail
+    namespace inbox:
+      inbox: yes
+  '10-master':
+    default_client_limit: 2000
+    default_process_limit: 200
+    service auth:
+      unix_listener /var/spool/postfix/private/auth:
+        user: postfix
+        group: postfix
+        mode: '0600'
+    service lmtp:
+      unix_listener /var/spool/postfix/private/dovecot-lmtp:
+        user: postfix
+        group: postfix
+        mode: '0600'
+  '10-ssl':
+    ssl: yes
+    ssl_server_cert_file: /etc/letsencrypt/live/example.com/fullchain.pem
+    ssl_server_key_file: /etc/letsencrypt/live/example.com/privkey.pem
+  '20-lmtp':
+    protocol lmtp:
+      mail_fsync: optimized
+      mail_plugins:
+        sieve: yes
+  '20-managesieve':
+    service managesieve-login:
+      service_count: 1
+      inet_listener sieve:
+        port: 4190
+  '90-sieve':
+    recipient_delimiter: '+'
+    sieve_script personal:
+      driver: file
+      path: ~/sieve
+      active_path: ~/.dovecot.sieve
+```
+
+Note that the key of each `dovecot::configs` entry is the file name without the `.conf`
+extension, e.g. `10-mail` is written to `conf.d/10-mail.conf`.
 
 ### External config files
 

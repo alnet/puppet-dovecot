@@ -77,7 +77,17 @@ define dovecot::configentry (
     }
     default: {
       $printed_value = dovecot::print_config_value($value)
-      concat::fragment { "dovecot ${file} config ${section} 02 ${key} 02":
+
+      # Dovecot 2.4 requires dovecot_config_version to be the very first
+      # setting in dovecot.conf (followed by dovecot_storage_version).
+      # Fragments are ordered alphabetically, so give these two keys a
+      # sort prefix ("01") that precedes all other top-level settings ("02").
+      $order = ($depth == 0 and $key in ['dovecot_config_version', 'dovecot_storage_version']) ? {
+        true    => '01',
+        default => '02',
+      }
+
+      concat::fragment { "dovecot ${file} config ${section} ${order} ${key} 02":
         target  => $file,
         content => "${indent}${key} = ${printed_value}\n",
       }

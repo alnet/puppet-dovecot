@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixes
+- Always write `dovecot_config_version` and `dovecot_storage_version` before all other
+  settings, as Dovecot 2.4 requires `dovecot_config_version` to be the first setting
+
+### Changed
+- Document Dovecot 2.4 configuration syntax and add a hiera example
+- Add unit tests for Dovecot 2.4 style sections and version settings
+
 ## [4.2.0] - 2024-03-13
 
 ## Changed
